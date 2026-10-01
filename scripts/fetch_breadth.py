@@ -65,6 +65,9 @@ def download(tickers):
         tickers, period="2y", interval="1d", auto_adjust=True, progress=False, threads=True
     )
     close, volume = data["Close"].dropna(how="all"), data["Volume"]
+    # Keep only stock-market trading days; ^VIX can print on exchange holidays,
+    # which would leave a gap in every stock's history.
+    close = close[close["SPY"].notna()]
     # Drop the last row if most stocks have no price yet (partial day).
     if close.iloc[-1].notna().mean() < 0.8:
         close = close.iloc[:-1]
@@ -105,7 +108,7 @@ def series(s, decimals=1):
 
 
 def pct_above(prices, window):
-    ma = prices.rolling(window, min_periods=window).mean()
+    ma = prices.rolling(window, min_periods=int(window * 0.9)).mean()
     valid = ma.notna() & prices.notna()
     above = ((prices > ma) & valid).sum(axis=1)
     return above / valid.sum(axis=1).replace(0, np.nan) * 100
@@ -302,6 +305,16 @@ def build(close, volume, sp500, universe):
     }
 
 
+def clean(obj):
+    if isinstance(obj, float) and not np.isfinite(obj):
+        return None
+    if isinstance(obj, dict):
+        return {k: clean(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clean(v) for v in obj]
+    return obj
+
+
 def main():
     if "--demo" in sys.argv:
         close, volume, sp500, universe = demo_data()
@@ -315,7 +328,8 @@ def main():
             sys.exit(f"Only got {got500} S&P 500 prices; refusing to overwrite data")
     data = build(close, volume, sp500, universe)
     OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(json.dumps(data, separators=(",", ":")))
+    # allow_nan=False: a stray NaN would make the file unreadable in browsers.
+    OUT.write_text(json.dumps(clean(data), separators=(",", ":"), allow_nan=False))
     print(f"Wrote {OUT} (as of {data['asof']}, overall {data['overall']})", file=sys.stderr)
 
 
