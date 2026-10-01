@@ -21,6 +21,7 @@
     --warn: #fab219;  --warn-ink: #8a5a00;
     --bad:  #d03b3b;  --bad-ink:  #a32020;
     --tip-bg: #2b2b29; --tip-text: #ffffff;
+    --good-tint: #dff3df; --bad-tint: #f9e0e0;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -30,6 +31,7 @@
       --series: #3987e5; --ref: #6b6a64;
       --good-ink: #4cd34c; --warn-ink: #fab219; --bad-ink: #f07070;
       --tip-bg: #f0efec; --tip-text: #0b0b0b;
+      --good-tint: #183d1b; --bad-tint: #4a1f1f;
     }
   }
   :root[data-theme="dark"] {
@@ -39,6 +41,7 @@
     --series: #3987e5; --ref: #6b6a64;
     --good-ink: #4cd34c; --warn-ink: #fab219; --bad-ink: #f07070;
       --tip-bg: #f0efec; --tip-text: #0b0b0b;
+      --good-tint: #183d1b; --bad-tint: #4a1f1f;
   }
   * { box-sizing: border-box; }
   body {
@@ -97,7 +100,29 @@
     opacity: 0; transition: opacity .1s; font-variant-numeric: tabular-nums;
   }
 
-  details.learn { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .monitor { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .monitor > summary { cursor: pointer; padding: 14px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; list-style: none; }
+  .monitor > summary::-webkit-details-marker { display: none; }
+  .monitor > summary::before { content: "▸"; color: var(--muted); }
+  .monitor[open] > summary::before { content: "▾"; }
+  .monitor > summary strong { font-size: 15px; }
+  .monitor > summary .regime { color: var(--text-2); font-size: 13px; flex-basis: 100%; padding-left: 18px; }
+  .monitor .body { padding: 0 16px 16px; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.mm { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  table.mm th, table.mm td { padding: 6px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+  table.mm th { color: var(--text-2); font-weight: 600; font-size: 12px; background: var(--surface); }
+  table.mm thead tr:first-child th { border-bottom: 0; color: var(--muted); font-weight: 500; }
+  table.mm th.grp { text-align: center; border-left: 1px solid var(--grid); }
+  table.mm td.l, table.mm th.l { text-align: left; }
+  table.mm td.l, table.mm th.l { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+  table.mm .sep { border-left: 1px solid var(--grid); }
+  table.mm td.g { background: var(--good-tint); color: var(--good-ink); font-weight: 600; }
+  table.mm td.b { background: var(--bad-tint); color: var(--bad-ink); font-weight: 600; }
+  table.mm td small { color: var(--muted); font-weight: 400; }
+  table.mm tbody tr:first-child td { font-weight: 600; }
+  .legend { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  details.learn { margin-top: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   details.learn summary { cursor: pointer; font-weight: 600; }
   details.learn p, details.learn li { color: var(--text-2); font-size: 14px; }
   footer { margin-top: 20px; color: var(--muted); font-size: 12px; }
@@ -108,7 +133,7 @@
 <body>
 <main>
   <h1>Market Breadth</h1>
-  <p class="sub">Is the whole market rising, or just a few big stocks? Five classic checks on the S&amp;P 500, updated after each trading day.</p>
+  <p class="sub">Is the whole market rising, or just a few big stocks? Five classic checks on the S&amp;P 500, plus a fear gauge and a Stockbee-style monitor. Updated after each trading day.</p>
 
   <div id="app"><p class="sub">Loading…</p></div>
 
@@ -150,7 +175,7 @@
     weak: ["Narrow / weak participation", "Most stocks are lagging. Any strength in the index is coming from a smaller group."]
   };
 
-  function pill(s) { return '<span class="pill ' + s + '">' + ICON[s] + LABEL[s] + "</span>"; }
+  function pill(s, label) { return '<span class="pill ' + s + '">' + ICON[s] + esc(label || LABEL[s]) + "</span>"; }
   function fmt(v, unit, dp) {
     if (v == null) return "–";
     var sign = (unit === "%" && dp === "signed") || dp === "signed" ? (v > 0 ? "+" : "") : "";
@@ -179,13 +204,14 @@
   function render() {
     var d = DATA, v = VERDICT[d.overall];
     var signed = { hl: 1, ad: 1, ew: 1 };
+    var extra = d.indicators.length > d.total ? " + fear gauge" : "";
     var html =
       '<section class="verdict">' +
         pill(d.overall) +
         '<div><div class="big">' + v[0] + "</div><p>" + v[1] + " " + d.healthy_count + " of " + d.total + " checks are healthy.</p></div>" +
         '<div class="meta">As of ' + fmtDate(d.asof) + "<br>SPY " + d.spy_close.toFixed(2) + " (" + fmt(d.spy_3m, "%", "signed") + " in 3 months)</div>" +
       "</section>" +
-      '<div class="toolbar"><h2>The five checks</h2><div class="seg" role="group" aria-label="Chart range">' +
+      '<div class="toolbar"><h2>The five checks' + extra + '</h2><div class="seg" role="group" aria-label="Chart range">' +
         Object.keys(RANGES).map(function (k) {
           return '<button type="button" data-range="' + k + '" aria-pressed="' + (k === range) + '">' + k + "</button>";
         }).join("") +
@@ -193,14 +219,14 @@
       '<div class="grid">' +
         d.indicators.map(function (ind, i) {
           return '<article class="card">' +
-            '<div class="card-head"><h3>' + esc(ind.title) + "</h3>" + pill(ind.status) + "</div>" +
+            '<div class="card-head"><h3>' + esc(ind.title) + "</h3>" + pill(ind.status, ind.status_label) + "</div>" +
             '<div class="value">' + fmt(ind.value, ind.unit, signed[ind.id] ? "signed" : "") +
               (ind.value_label ? "<small>" + esc(ind.value_label) + "</small>" : "<small>latest</small>") + "</div>" +
             '<div class="chart" data-i="' + i + '"></div>' +
             '<p class="what">' + esc(ind.what) + "</p>" +
           "</article>";
         }).join("") +
-      "</div>";
+      "</div>" + monitorHTML(d.monitor);
     document.getElementById("app").innerHTML = html;
     document.getElementById("foot").innerHTML +=
       " Universe: " + d.universe + " stocks. Generated " + esc(d.generated) + ".";
@@ -213,11 +239,48 @@
         drawAll();
       });
     });
+    var mon = document.querySelector(".monitor");
+    if (mon) mon.addEventListener("toggle", function () {
+      try { localStorage.setItem("monitorOpen", mon.open ? "1" : "0"); } catch (e) {}
+    });
     drawAll();
     if (window.ResizeObserver) {
       var ro = new ResizeObserver(function () { drawAll(); });
       ro.observe(document.querySelector(".grid"));
     }
+  }
+
+  function monitorHTML(m) {
+    if (!m || !m.rows || !m.rows.length) return "";
+    var pairs = [["up25q", "dn25q", "25% in a quarter", "Stocks up / down 25%+ over the last 65 trading days"],
+                 ["up25m", "dn25m", "25% in a month", "Up / down 25%+ over 20 trading days"],
+                 ["up50m", "dn50m", "50% in a month", "Up / down 50%+ over 20 trading days"],
+                 ["up13", "dn13", "13% in 34 days", "Up / down 13%+ over 34 trading days"]];
+    function num(v, dp) { return v == null ? "–" : v.toLocaleString(undefined, { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 }); }
+    function cls(c) { return c ? ' class="' + c + '"' : ""; }
+    var head1 = '<tr><th class="l"></th><th class="grp" colspan="4" title="Stocks moving 4%+ in a day on higher volume than the day before (min 100k shares)">Daily 4% movers</th>' +
+      pairs.map(function (p) { return '<th class="grp" colspan="2" title="' + p[3] + '">' + p[2] + "</th>"; }).join("") +
+      '<th class="grp" title="% of stocks above their 40-day average">T2108</th></tr>';
+    var head2 = '<tr><th class="l">Date</th><th class="sep">Up</th><th>Down</th><th>5d ratio</th><th>10d ratio</th>' +
+      pairs.map(function () { return '<th class="sep">Up</th><th>Down</th>'; }).join("") + '<th class="sep">%</th></tr>';
+    var body = m.rows.map(function (r) {
+      var u4 = r.up4 >= 2 * Math.max(r.dn4, 1) ? "g" : "", d4 = r.dn4 >= 2 * Math.max(r.up4, 1) ? "b" : "";
+      function rc(v) { return v == null ? "" : v >= 2 ? "g" : v <= 0.5 ? "b" : ""; }
+      var t = r.t2108, tnote = t == null ? "" : t < 20 ? " <small>oversold</small>" : t > 70 ? " <small>overbought</small>" : "";
+      return "<tr><td class=\"l\">" + shortDate(r.date) + "</td>" +
+        '<td class="sep' + (u4 ? " " + u4 : "") + '">' + num(r.up4) + "</td><td" + cls(d4) + ">" + num(r.dn4) + "</td>" +
+        "<td" + cls(rc(r.r5)) + ">" + num(r.r5, 2) + "</td><td" + cls(rc(r.r10)) + ">" + num(r.r10, 2) + "</td>" +
+        pairs.map(function (p) { return '<td class="sep">' + num(r[p[0]]) + "</td><td>" + num(r[p[1]]) + "</td>"; }).join("") +
+        '<td class="sep">' + num(t, 1) + tnote + "</td></tr>";
+    }).join("");
+    var open = false;
+    try { open = localStorage.getItem("monitorOpen") === "1"; } catch (e) {}
+    return '<details class="monitor"' + (open ? " open" : "") + '><summary><strong>Stockbee-style Market Monitor</strong>' + pill(m.regime) +
+      '<span class="regime">' + esc(m.regime_text) + "</span></summary>" +
+      '<div class="body"><div class="tablewrap"><table class="mm"><thead>' + head1 + head2 + "</thead><tbody>" + body + "</tbody></table></div>" +
+      '<p class="legend">Counts from the S&amp;P 1500 (' + m.universe.toLocaleString() + " stocks priced $3+), newest day first. " +
+      "Green or red marks a lopsided day: one side at least double the other, or a 5/10-day up÷down ratio of 2+ (strong buying) or 0.5 or less (strong selling). " +
+      "T2108 under 20 is oversold, over 70 overbought. Stockbee scans about 6,000 stocks, so raw counts here run smaller than his; compare up vs. down instead.</p></div></details>";
   }
 
   function drawAll() {

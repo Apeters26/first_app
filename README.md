@@ -12,12 +12,22 @@ A simple dashboard showing how many S&P 500 stocks are taking part in the market
 | Advance/decline line + McClellan oscillator | Are most stocks rising day to day? | A/D line above its 50-day avg **and** McClellan > 0 / both negative |
 | Equal-weight vs. cap-weight (RSP ÷ SPY, 3-month change) | Is the average stock keeping up with the giants? | > +1% / < −1% |
 
-The headline verdict counts the checks: two or more net healthy is "Broad", two or more net weak is "Narrow / weak", and anything else is "Mixed".
+### Also on the page
+
+- **VIX fear gauge** (`^VIX`, with `^VIX3M` for term structure). Under 20 is calm and over 30 is fear. VIX above VIX3M means near-term stress. This is sentiment, so it doesn't count toward the verdict.
+- **Stockbee-style Market Monitor** (collapsed by default). It covers the last 10 days for the S&P 1500 (stocks priced $3+):
+  - stocks up or down 4%+ on rising volume, with their 5- and 10-day ratios
+  - stocks up or down 25% in a quarter, 25% and 50% in a month, and 13% in 34 days
+  - T2108 (% of stocks above their 40-day average)
+
+  The quarterly 25% counts set the "regime" label. Stockbee scans about 6,000 stocks, so the raw counts here are smaller than his; compare up vs. down instead.
+
+The headline verdict counts the five checks: two or more net healthy is "Broad", two or more net weak is "Narrow / weak", and anything else is "Mixed".
 
 ## Data sources (free)
 
-- S&P 500 members: Wikipedia, with a fallback to the [datasets/s-and-p-500-companies](https://github.com/datasets/s-and-p-500-companies) list.
-- Daily prices for every member, plus SPY and RSP: Yahoo Finance, fetched with [`yfinance`](https://github.com/ranaroussi/yfinance).
+- S&P 500, 400 and 600 members: Wikipedia, with an S&P 500 fallback to the [datasets/s-and-p-500-companies](https://github.com/datasets/s-and-p-500-companies) list.
+- Daily prices and volume for every member, plus SPY, RSP, ^VIX and ^VIX3M: Yahoo Finance, fetched with [`yfinance`](https://github.com/ranaroussi/yfinance).
 
 All breadth numbers are calculated from these prices in `scripts/fetch_breadth.py`.
 
