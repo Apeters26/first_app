@@ -148,7 +148,7 @@
     <p>These are context, not trade signals. Breadth can stay weak or strong for a long time.</p>
   </details>
 
-  <footer id="foot">Data: S&amp;P 500 members from Wikipedia; daily prices from Yahoo Finance (via yfinance). Breadth is calculated from closing prices.</footer>
+  <footer id="foot">Data: S&amp;P 500/400/600 members from Wikipedia; daily prices, volume and VIX from Yahoo Finance (via yfinance). Breadth is calculated from closing prices.</footer>
 </main>
 
 <script>
@@ -229,7 +229,7 @@
       "</div>" + monitorHTML(d.monitor);
     document.getElementById("app").innerHTML = html;
     document.getElementById("foot").innerHTML +=
-      " Universe: " + d.universe + " stocks. Generated " + esc(d.generated) + ".";
+      " Five checks use " + d.universe + " S&amp;P 500 stocks. Generated " + esc(d.generated) + ".";
 
     document.querySelectorAll(".seg button").forEach(function (b) {
       b.addEventListener("click", function () {
