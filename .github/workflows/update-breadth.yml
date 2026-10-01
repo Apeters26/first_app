@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "30 22 * * 1-5" # weekdays, after the US close
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - scripts/**
+      - requirements.txt
+      - .github/workflows/update-breadth.yml
 
 permissions:
   contents: write
