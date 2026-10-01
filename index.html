@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Market Breadth</title>
+<meta name="description" content="How many S&P 500 stocks are actually participating in the market's move, from free daily data.">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f5f2;
+    --surface: #fcfcfb;
+    --border: #e4e2dc;
+    --grid: #ecebe6;
+    --text: #0b0b0b;
+    --text-2: #52514e;
+    --muted: #7a7974;
+    --series: #2a78d6;
+    --ref: #a9a7a0;
+    --good: #0ca30c;  --good-ink: #006300;
+    --warn: #fab219;  --warn-ink: #8a5a00;
+    --bad:  #d03b3b;  --bad-ink:  #a32020;
+    --tip-bg: #2b2b29; --tip-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #121211; --surface: #1a1a19; --border: #2e2e2b; --grid: #262624;
+      --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
+      --series: #3987e5; --ref: #6b6a64;
+      --good-ink: #4cd34c; --warn-ink: #fab219; --bad-ink: #f07070;
+      --tip-bg: #f0efec; --tip-text: #0b0b0b;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --border: #2e2e2b; --grid: #262624;
+    --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
+    --series: #3987e5; --ref: #6b6a64;
+    --good-ink: #4cd34c; --warn-ink: #fab219; --bad-ink: #f07070;
+      --tip-bg: #f0efec; --tip-text: #0b0b0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-2); margin: 0 0 24px; }
+
+  .verdict {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .verdict .big { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+  .verdict p { margin: 2px 0 0; color: var(--text-2); }
+  .verdict .meta { margin-left: auto; text-align: right; color: var(--muted); font-size: 13px; }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin: 0 0 12px; gap: 12px; }
+  .toolbar h2 { font-size: 15px; margin: 0; color: var(--text-2); font-weight: 600; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .seg button {
+    border: 0; background: none; color: var(--text-2); font: inherit; font-size: 13px;
+    padding: 6px 12px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--grid); color: var(--text); font-weight: 600; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  }
+  .card-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+  .card h3 { font-size: 14px; margin: 0; font-weight: 600; }
+  .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .value small { font-size: 12px; font-weight: 400; color: var(--muted); display: block; margin-top: 2px; }
+  .what { color: var(--text-2); font-size: 13px; margin: 0; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    font-size: 12px; font-weight: 600; padding: 2px 8px 2px 6px; border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  .pill svg { width: 12px; height: 12px; }
+  .pill.healthy { color: var(--good-ink); } .pill.healthy .dot { fill: var(--good); }
+  .pill.mixed   { color: var(--warn-ink); } .pill.mixed .dot   { fill: var(--warn); }
+  .pill.weak    { color: var(--bad-ink); }  .pill.weak .dot    { fill: var(--bad); }
+
+  .chart { position: relative; height: 120px; touch-action: pan-y; }
+  .chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .chart text { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .tip {
+    position: absolute; top: -6px; pointer-events: none; background: var(--tip-bg); color: var(--tip-text);
+    font-size: 12px; padding: 3px 7px; border-radius: 6px; white-space: nowrap; transform: translateX(-50%);
+    opacity: 0; transition: opacity .1s; font-variant-numeric: tabular-nums;
+  }
+
+  details.learn { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  details.learn summary { cursor: pointer; font-weight: 600; }
+  details.learn p, details.learn li { color: var(--text-2); font-size: 14px; }
+  footer { margin-top: 20px; color: var(--muted); font-size: 12px; }
+  footer a { color: inherit; }
+  .error { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; color: var(--text-2); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Market Breadth</h1>
+  <p class="sub">Is the whole market rising, or just a few big stocks? Five classic checks on the S&amp;P 500, updated after each trading day.</p>
+
+  <div id="app"><p class="sub">Loading…</p></div>
+
+  <details class="learn">
+    <summary>What is market breadth?</summary>
+    <p>An index like the S&amp;P 500 is weighted by company size, so a handful of giants can push it up even while most stocks fall. Breadth measures how many stocks are taking part. Healthy rallies usually have broad participation. When the index climbs while breadth shrinks (a <em>divergence</em>), the move is resting on fewer shoulders and tends to be more fragile.</p>
+    <ul>
+      <li><strong>Healthy</strong>: most stocks are participating.</li>
+      <li><strong>Mixed</strong>: participation is middling or the signals disagree.</li>
+      <li><strong>Weak</strong>: most stocks are lagging, even if the index looks fine.</li>
+    </ul>
+    <p>These are context, not trade signals. Breadth can stay weak or strong for a long time.</p>
+  </details>
+
+  <footer id="foot">Data: S&amp;P 500 members from Wikipedia; daily prices from Yahoo Finance (via yfinance). Breadth is calculated from closing prices.</footer>
+</main>
+
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem("theme");
+    if (t) document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+
+  var RANGES = { "3M": 63, "6M": 126, "1Y": 260 };
+  var range = "6M";
+  try { range = localStorage.getItem("range") || range; } catch (e) {}
+  if (!RANGES[range]) range = "6M";
+
+  var LABEL = { healthy: "Healthy", mixed: "Mixed", weak: "Weak" };
+  var ICON = {
+    healthy: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle class="dot" cx="6" cy="6" r="6"/><path d="M3.3 6.2l1.8 1.8 3.6-3.8" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    mixed: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle class="dot" cx="6" cy="6" r="6"/><path d="M3.5 6h5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>',
+    weak: '<svg viewBox="0 0 12 12" aria-hidden="true"><circle class="dot" cx="6" cy="6" r="6"/><path d="M6 3.2v3.6M6 8.6v.1" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>'
+  };
+  var VERDICT = {
+    healthy: ["Broad participation", "Most stocks are joining the move. This is what a healthy market usually looks like."],
+    mixed: ["Mixed participation", "Some measures look fine and others don't. Leadership is narrower than ideal."],
+    weak: ["Narrow / weak participation", "Most stocks are lagging. Any strength in the index is coming from a smaller group."]
+  };
+
+  function pill(s) { return '<span class="pill ' + s + '">' + ICON[s] + LABEL[s] + "</span>"; }
+  function fmt(v, unit, dp) {
+    if (v == null) return "–";
+    var sign = (unit === "%" && dp === "signed") || dp === "signed" ? (v > 0 ? "+" : "") : "";
+    return sign + v.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + (unit || "");
+  }
+  function fmtDate(s) {
+    var d = new Date(s + "T12:00:00");
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+  function shortDate(s) {
+    var d = new Date(s + "T12:00:00");
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  var DATA;
+
+  fetch("data/breadth.json", { cache: "no-cache" })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (d) { DATA = d; render(); })
+    .catch(function () {
+      document.getElementById("app").innerHTML =
+        '<div class="error">No data yet. The daily update job writes <code>data/breadth.json</code>. Run the “Update breadth data” workflow on GitHub to create it.</div>';
+    });
+
+  function render() {
+    var d = DATA, v = VERDICT[d.overall];
+    var signed = { hl: 1, ad: 1, ew: 1 };
+    var html =
+      '<section class="verdict">' +
+        pill(d.overall) +
+        '<div><div class="big">' + v[0] + "</div><p>" + v[1] + " " + d.healthy_count + " of " + d.total + " checks are healthy.</p></div>" +
+        '<div class="meta">As of ' + fmtDate(d.asof) + "<br>SPY " + d.spy_close.toFixed(2) + " (" + fmt(d.spy_3m, "%", "signed") + " in 3 months)</div>" +
+      "</section>" +
+      '<div class="toolbar"><h2>The five checks</h2><div class="seg" role="group" aria-label="Chart range">' +
+        Object.keys(RANGES).map(function (k) {
+          return '<button type="button" data-range="' + k + '" aria-pressed="' + (k === range) + '">' + k + "</button>";
+        }).join("") +
+      "</div></div>" +
+      '<div class="grid">' +
+        d.indicators.map(function (ind, i) {
+          return '<article class="card">' +
+            '<div class="card-head"><h3>' + esc(ind.title) + "</h3>" + pill(ind.status) + "</div>" +
+            '<div class="value">' + fmt(ind.value, ind.unit, signed[ind.id] ? "signed" : "") +
+              (ind.value_label ? "<small>" + esc(ind.value_label) + "</small>" : "<small>latest</small>") + "</div>" +
+            '<div class="chart" data-i="' + i + '"></div>' +
+            '<p class="what">' + esc(ind.what) + "</p>" +
+          "</article>";
+        }).join("") +
+      "</div>";
+    document.getElementById("app").innerHTML = html;
+    document.getElementById("foot").innerHTML +=
+      " Universe: " + d.universe + " stocks. Generated " + esc(d.generated) + ".";
+
+    document.querySelectorAll(".seg button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        range = b.getAttribute("data-range");
+        try { localStorage.setItem("range", range); } catch (e) {}
+        document.querySelectorAll(".seg button").forEach(function (o) { o.setAttribute("aria-pressed", o === b); });
+        drawAll();
+      });
+    });
+    drawAll();
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(function () { drawAll(); });
+      ro.observe(document.querySelector(".grid"));
+    }
+  }
+
+  function drawAll() {
+    document.querySelectorAll(".chart").forEach(function (el) {
+      draw(el, DATA.indicators[+el.getAttribute("data-i")]);
+    });
+  }
+
+  function niceTicks(lo, hi) {
+    var span = hi - lo || 1, step = Math.pow(10, Math.floor(Math.log10(span / 2)));
+    [1, 2, 2.5, 5, 10].some(function (m) { if (span / (step * m) <= 3) { step *= m; return true; } });
+    var t = [], s = Math.ceil(lo / step) * step;
+    for (var x = s; x <= hi + 1e-9; x += step) t.push(+x.toFixed(6));
+    return t;
+  }
+
+  function draw(el, ind) {
+    var n = RANGES[range];
+    var ys = ind.series.slice(-n), ds = DATA.dates.slice(-n);
+    var W = el.clientWidth, H = el.clientHeight, padL, padR = 6, padT = 8, padB = 18;
+    var vals = ys.filter(function (v) { return v != null; });
+    if (ind.ref != null) vals.push(ind.ref);
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+    if (ind.unit === "%" && ind.id !== "ew") { lo = Math.max(0, lo); hi = Math.min(100, hi); }
+    var ticks = niceTicks(lo, hi);
+    padL = 10 + 6 * Math.max.apply(null, ticks.map(function (t) { return t.toLocaleString().length; }));
+    var X = function (i) { return padL + (i / (ys.length - 1)) * (W - padL - padR); };
+    var Y = function (v) { return padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB); };
+
+    var g = ticks.map(function (t) {
+      var y = Y(t).toFixed(1);
+      return '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y + '" y2="' + y + '" stroke="var(--grid)" stroke-width="1"/>' +
+        '<text x="' + (padL - 6) + '" y="' + y + '" dy="3" text-anchor="end">' + t.toLocaleString() + "</text>";
+    }).join("");
+    var ref = ind.ref != null
+      ? '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(ind.ref).toFixed(1) + '" y2="' + Y(ind.ref).toFixed(1) + '" stroke="var(--ref)" stroke-width="1" stroke-dasharray="3 3"/>'
+      : "";
+    var path = "", pen = false;
+    ys.forEach(function (v, i) {
+      if (v == null) { pen = false; return; }
+      path += (pen ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1);
+      pen = true;
+    });
+    var xl = '<text x="' + padL + '" y="' + (H - 4) + '">' + shortDate(ds[0]) + "</text>" +
+      '<text x="' + (W - padR) + '" y="' + (H - 4) + '" text-anchor="end">' + shortDate(ds[ds.length - 1]) + "</text>";
+    var last = ys.length - 1;
+
+    el.innerHTML =
+      '<svg role="img" aria-label="' + esc(ind.title) + " over the last " + range + '">' + g + ref +
+        '<path d="' + path + '" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+        (ys[last] != null ? '<circle cx="' + X(last) + '" cy="' + Y(ys[last]) + '" r="4" fill="var(--series)" stroke="var(--surface)" stroke-width="2"/>' : "") +
+        '<g class="hover" style="display:none"><line y1="' + padT + '" y2="' + (H - padB) + '" stroke="var(--muted)" stroke-width="1"/>' +
+        '<circle r="4" fill="var(--series)" stroke="var(--surface)" stroke-width="2"/></g>' +
+        xl + "</svg><div class=\"tip\"></div>";
+
+    var svg = el.firstChild, hov = svg.querySelector(".hover"), tip = el.querySelector(".tip");
+    function move(ev) {
+      var r = svg.getBoundingClientRect();
+      var px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+      var i = Math.round(((px - padL) / (W - padL - padR)) * (ys.length - 1));
+      i = Math.max(0, Math.min(ys.length - 1, i));
+      if (ys[i] == null) return;
+      var x = X(i), y = Y(ys[i]);
+      hov.style.display = "";
+      hov.firstChild.setAttribute("x1", x); hov.firstChild.setAttribute("x2", x);
+      hov.lastChild.setAttribute("cx", x); hov.lastChild.setAttribute("cy", y);
+      tip.textContent = shortDate(ds[i]) + ": " + ys[i].toLocaleString(undefined, { maximumFractionDigits: 2 }) + (ind.unit === "%" && ind.id !== "ew" ? "%" : "");
+      tip.style.left = Math.max(50, Math.min(W - 50, x)) + "px";
+      tip.style.opacity = 1;
+    }
+    function leave() { hov.style.display = "none"; tip.style.opacity = 0; }
+    svg.addEventListener("mousemove", move);
+    svg.addEventListener("touchmove", move, { passive: true });
+    svg.addEventListener("mouseleave", leave);
+    svg.addEventListener("touchend", leave);
+  }
+})();
+</script>
+</body>
+</html>
