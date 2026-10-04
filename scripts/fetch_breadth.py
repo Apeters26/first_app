@@ -11,6 +11,7 @@ Run:  python scripts/fetch_breadth.py            (live data)
       python scripts/fetch_breadth.py --demo     (synthetic data, for offline testing)
 """
 
+import csv
 import io
 import json
 import sys
@@ -27,6 +28,8 @@ KEEP_DAYS = 260  # about one trading year shown in the app
 MONITOR_DAYS = 10  # rows in the Stockbee-style table
 EXTRAS = ["SPY", "RSP", "^VIX", "^VIX3M"]
 WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_{}_companies"
+# Stockbee's public Market Monitor sheet (he keeps updating this one; the title says 2025).
+STOCKBEE_SHEET = "https://docs.google.com/spreadsheets/d/1O6OhS7ciA8zwfycBfGPbP2fWJnR0pn2UUvFZVDP9jpE"
 
 
 def wiki_symbols(n):
@@ -239,6 +242,7 @@ def stockbee_monitor(close, volume, universe):
         chg = px / px.shift(lookback)
         return cond(chg).sum(axis=1)
 
+    t2108 = pct_above(px, 40)
     m = pd.DataFrame(
         {
             "up4": up4,
@@ -253,7 +257,7 @@ def stockbee_monitor(close, volume, universe):
             "dn50m": count(20, lambda c: c <= 0.5),
             "up13": count(34, lambda c: c >= 1.13),
             "dn13": count(34, lambda c: c <= 0.87),
-            "t2108": pct_above(px, 40),
+            "t2108": t2108,
         }
     ).iloc[-MONITOR_DAYS:][::-1]
 
@@ -271,22 +275,83 @@ def stockbee_monitor(close, volume, universe):
         regime, text = "weak", "More stocks are down 25%+ this quarter than up 25%+: breakouts tend to fail here."
     else:
         regime, text = "mixed", "Quarterly gainers and losers are roughly balanced: no strong trend either way."
-    return {"universe": len(cols), "regime": regime, "regime_text": text, "rows": rows}
+    return {"universe": len(cols), "regime": regime, "regime_text": text, "rows": rows}, t2108
+
+
+def fetch_stockbee_t2108():
+    """T2108 column from Stockbee's sheet, as a date-indexed Series (newest last)."""
+    text = requests.get(f"{STOCKBEE_SHEET}/pub?output=csv", headers=UA, timeout=30).text
+    rows = list(csv.reader(io.StringIO(text)))
+    hi = next(i for i, r in enumerate(rows) if r and r[0].strip().lower() == "date")
+    header = [h.strip().lower() for h in rows[hi]]
+    col = next((i for i, h in enumerate(header) if "t2108" in h), 14)  # 14: its spot in the 2026 layout
+    out = {}
+    for r in rows[hi + 1:]:
+        try:
+            d = pd.to_datetime(r[0], format="%m/%d/%Y")
+            v = float(r[col].replace(",", ""))
+        except (ValueError, IndexError):
+            continue
+        if 0 <= v <= 100:
+            out[d] = v
+    if len(out) < 5:
+        raise ValueError(f"only {len(out)} T2108 rows parsed")
+    return pd.Series(out).sort_index()
+
+
+def t2108_card(dates, ours, theirs):
+    asof = pd.Timestamp(dates[-1])
+    fresh = theirs is not None and theirs.index[-1] >= asof - pd.Timedelta(days=7)
+    v = float(theirs.iloc[-1]) if fresh else float(ours.iloc[-1])
+    if v < 20:
+        status, label = "weak", "Oversold"
+    elif v > 70:
+        status, label = "mixed", "Overbought"
+    elif v < 40:
+        status, label = "mixed", "Below average"
+    else:
+        status, label = "healthy", "Healthy"
+    idx = pd.to_datetime(dates)
+    ours_txt = f"S&P 1500 version {ours.iloc[-1]:.1f}"
+    if fresh:
+        when = theirs.index[-1].strftime("%b %-d")
+        value_label = f"Stockbee, {when} · {ours_txt}"
+        line = series(theirs.reindex(idx))
+    else:
+        value_label = f"{ours_txt} (Stockbee sheet unavailable)"
+        line = series(ours.reindex(idx))
+    return {
+        "id": "t2108",
+        "title": "T2108",
+        "value": round(v, 1),
+        "unit": "%",
+        "value_label": value_label,
+        "status": status,
+        "status_label": label,
+        "counted": False,
+        "what": "Share of stocks above their 40-day average. Under 20 is a bottoming zone; over 70 is overheated. Stockbee's number covers about 6,500 stocks; ours covers the S&P 1500.",
+        "series": line,
+        "series2": series(ours.reindex(idx)) if fresh else None,
+        "labels": ["Stockbee", "S&P 1500 (ours)"] if fresh else None,
+        "refs": [20, 70],
+        "source": f"{STOCKBEE_SHEET}/pubhtml" if fresh else None,
+    }
 
 
 def optional(fn, *args):
     """Extras shouldn't block the core checks if their data is missing."""
     try:
         return [fn(*args)]
-    except (KeyError, IndexError, ZeroDivisionError) as exc:
+    except (KeyError, IndexError, ZeroDivisionError, ValueError, StopIteration, requests.RequestException) as exc:
         print(f"Skipping {fn.__name__}: {exc!r}", file=sys.stderr)
         return []
 
 
-def build(close, volume, sp500, universe):
+def build(close, volume, sp500, universe, stockbee=None):
     spy = close["SPY"]
     dates = [d.strftime("%Y-%m-%d") for d in close.index[-KEEP_DAYS:]]
     n500, checks = breadth_checks(close, sp500)
+    monitor, our_t2108 = stockbee_monitor(close, volume, universe)
 
     score = sum({"healthy": 1, "weak": -1}.get(i["status"], 0) for i in checks)
     overall = "healthy" if score >= 2 else "weak" if score <= -2 else "mixed"
@@ -300,8 +365,8 @@ def build(close, volume, sp500, universe):
         "spy_close": round(float(spy.iloc[-1]), 2),
         "spy_3m": round(float((spy.iloc[-1] / spy.iloc[-64] - 1) * 100), 1),
         "dates": dates,
-        "indicators": checks + optional(vix_card, close),
-        "monitor": stockbee_monitor(close, volume, universe),
+        "indicators": checks + optional(vix_card, close) + optional(t2108_card, dates, our_t2108, stockbee),
+        "monitor": monitor,
     }
 
 
@@ -316,8 +381,11 @@ def clean(obj):
 
 
 def main():
+    stockbee = None
     if "--demo" in sys.argv:
         close, volume, sp500, universe = demo_data()
+        idx = close.index[-120:]
+        stockbee = pd.Series(np.linspace(30, 22, len(idx)), index=idx)
     else:
         sp500, universe = load_universe()
         print(f"{len(sp500)} S&P 500 / {len(universe)} total tickers", file=sys.stderr)
@@ -326,7 +394,9 @@ def main():
         got500 = sum(have.get(t, False) for t in sp500)
         if got500 < 400 or not all(have.get(t, False) for t in ("SPY", "RSP")):
             sys.exit(f"Only got {got500} S&P 500 prices; refusing to overwrite data")
-    data = build(close, volume, sp500, universe)
+        got = optional(fetch_stockbee_t2108)
+        stockbee = got[0] if got else None
+    data = build(close, volume, sp500, universe, stockbee)
     OUT.parent.mkdir(exist_ok=True)
     # allow_nan=False: a stray NaN would make the file unreadable in browsers.
     OUT.write_text(json.dumps(clean(data), separators=(",", ":"), allow_nan=False))

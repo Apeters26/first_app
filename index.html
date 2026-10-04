@@ -16,6 +16,7 @@
     --text-2: #52514e;
     --muted: #7a7974;
     --series: #2a78d6;
+    --series-2: #eb6834;
     --ref: #a9a7a0;
     --good: #0ca30c;  --good-ink: #006300;
     --warn: #fab219;  --warn-ink: #8a5a00;
@@ -28,7 +29,7 @@
       color-scheme: dark;
       --bg: #121211; --surface: #1a1a19; --border: #2e2e2b; --grid: #262624;
       --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
-      --series: #3987e5; --ref: #6b6a64;
+      --series: #3987e5; --series-2: #d95926; --ref: #6b6a64;
       --good-ink: #4cd34c; --warn-ink: #fab219; --bad-ink: #f07070;
       --tip-bg: #f0efec; --tip-text: #0b0b0b;
       --good-tint: #183d1b; --bad-tint: #4a1f1f;
@@ -38,7 +39,7 @@
     color-scheme: dark;
     --bg: #121211; --surface: #1a1a19; --border: #2e2e2b; --grid: #262624;
     --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
-    --series: #3987e5; --ref: #6b6a64;
+    --series: #3987e5; --series-2: #d95926; --ref: #6b6a64;
     --good-ink: #4cd34c; --warn-ink: #fab219; --bad-ink: #f07070;
       --tip-bg: #f0efec; --tip-text: #0b0b0b;
       --good-tint: #183d1b; --bad-tint: #4a1f1f;
@@ -80,6 +81,10 @@
   .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
   .value small { font-size: 12px; font-weight: 400; color: var(--muted); display: block; margin-top: 2px; }
   .what { color: var(--text-2); font-size: 13px; margin: 0; }
+  .what a { color: inherit; }
+  .lgd { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin: -2px 0 0; }
+  .lgd span { display: inline-flex; align-items: center; gap: 6px; }
+  .lgd i { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
 
   .pill {
     display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
@@ -133,7 +138,7 @@
 <body>
 <main>
   <h1>Market Breadth</h1>
-  <p class="sub">Is the whole market rising, or just a few big stocks? Five classic checks on the S&amp;P 500, plus a fear gauge and a Stockbee-style monitor. Updated after each trading day.</p>
+  <p class="sub">Is the whole market rising, or just a few big stocks? Five classic checks on the S&amp;P 500, plus a fear gauge, Stockbee's T2108 and a Stockbee-style monitor. Updated after each trading day.</p>
 
   <div id="app"><p class="sub">Loading…</p></div>
 
@@ -148,7 +153,7 @@
     <p>These are context, not trade signals. Breadth can stay weak or strong for a long time.</p>
   </details>
 
-  <footer id="foot">Data: S&amp;P 500/400/600 members from Wikipedia; daily prices, volume and VIX from Yahoo Finance (via yfinance). Breadth is calculated from closing prices.</footer>
+  <footer id="foot">Data: S&amp;P 500/400/600 members from Wikipedia; daily prices, volume and VIX from Yahoo Finance (via yfinance); T2108 from Stockbee's public Market Monitor sheet. Breadth is calculated from closing prices.</footer>
 </main>
 
 <script>
@@ -204,7 +209,7 @@
   function render() {
     var d = DATA, v = VERDICT[d.overall];
     var signed = { hl: 1, ad: 1, ew: 1 };
-    var extra = d.indicators.length > d.total ? " + fear gauge" : "";
+    var extra = d.indicators.length > d.total ? " + fear gauge & T2108" : "";
     var html =
       '<section class="verdict">' +
         pill(d.overall) +
@@ -222,8 +227,9 @@
             '<div class="card-head"><h3>' + esc(ind.title) + "</h3>" + pill(ind.status, ind.status_label) + "</div>" +
             '<div class="value">' + fmt(ind.value, ind.unit, signed[ind.id] ? "signed" : "") +
               (ind.value_label ? "<small>" + esc(ind.value_label) + "</small>" : "<small>latest</small>") + "</div>" +
+            (ind.labels ? '<div class="lgd"><span><i style="background:var(--series)"></i>' + esc(ind.labels[0]) + '</span><span><i style="background:var(--series-2)"></i>' + esc(ind.labels[1]) + "</span></div>" : "") +
             '<div class="chart" data-i="' + i + '"></div>' +
-            '<p class="what">' + esc(ind.what) + "</p>" +
+            '<p class="what">' + esc(ind.what) + (ind.source ? ' <a href="' + esc(ind.source) + '" target="_blank" rel="noopener">Stockbee\'s sheet</a>' : "") + "</p>" +
           "</article>";
         }).join("") +
       "</div>" + monitorHTML(d.monitor);
@@ -260,7 +266,7 @@
     function cls(c) { return c ? ' class="' + c + '"' : ""; }
     var head1 = '<tr><th class="l"></th><th class="grp" colspan="4" title="Stocks moving 4%+ in a day on higher volume than the day before (min 100k shares)">Daily 4% movers</th>' +
       pairs.map(function (p) { return '<th class="grp" colspan="2" title="' + p[3] + '">' + p[2] + "</th>"; }).join("") +
-      '<th class="grp" title="% of stocks above their 40-day average">T2108</th></tr>';
+      '<th class="grp" title="% of S&amp;P 1500 stocks above their 40-day average (our version; Stockbee\'s is on the T2108 card)">T2108 (ours)</th></tr>';
     var head2 = '<tr><th class="l">Date</th><th class="sep">Up</th><th>Down</th><th>5d ratio</th><th>10d ratio</th>' +
       pairs.map(function () { return '<th class="sep">Up</th><th>Down</th>'; }).join("") + '<th class="sep">%</th></tr>';
     var body = m.rows.map(function (r) {
@@ -300,12 +306,14 @@
   function draw(el, ind) {
     var n = RANGES[range];
     var ys = ind.series.slice(-n), ds = DATA.dates.slice(-n);
+    var y2 = ind.series2 ? ind.series2.slice(-n) : null;
+    var refs = ind.refs || (ind.ref != null ? [ind.ref] : []);
     var W = el.clientWidth, H = el.clientHeight, padL, padR = 6, padT = 8, padB = 18;
-    var vals = ys.filter(function (v) { return v != null; });
-    if (ind.ref != null) vals.push(ind.ref);
+    var vals = ys.concat(y2 || []).filter(function (v) { return v != null; }).concat(refs);
     var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     var pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
-    if (ind.unit === "%" && ind.id !== "ew") { lo = Math.max(0, lo); hi = Math.min(100, hi); }
+    var pct = ind.id === "p200" || ind.id === "p50" || ind.id === "t2108";
+    if (pct) { lo = Math.max(0, lo); hi = Math.min(100, hi); }
     var ticks = niceTicks(lo, hi);
     padL = 10 + 6 * Math.max.apply(null, ticks.map(function (t) { return t.toLocaleString().length; }));
     var X = function (i) { return padL + (i / (ys.length - 1)) * (W - padL - padR); };
@@ -316,22 +324,28 @@
       return '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y + '" y2="' + y + '" stroke="var(--grid)" stroke-width="1"/>' +
         '<text x="' + (padL - 6) + '" y="' + y + '" dy="3" text-anchor="end">' + t.toLocaleString() + "</text>";
     }).join("");
-    var ref = ind.ref != null
-      ? '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(ind.ref).toFixed(1) + '" y2="' + Y(ind.ref).toFixed(1) + '" stroke="var(--ref)" stroke-width="1" stroke-dasharray="3 3"/>'
-      : "";
-    var path = "", pen = false;
-    ys.forEach(function (v, i) {
-      if (v == null) { pen = false; return; }
-      path += (pen ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1);
-      pen = true;
-    });
+    var ref = refs.map(function (r) {
+      return '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(r).toFixed(1) + '" y2="' + Y(r).toFixed(1) + '" stroke="var(--ref)" stroke-width="1" stroke-dasharray="3 3"/>';
+    }).join("");
+    function pathOf(arr) {
+      var d = "", pen = false;
+      arr.forEach(function (v, i) {
+        if (v == null) { pen = false; return; }
+        d += (pen ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1);
+        pen = true;
+      });
+      return d;
+    }
+    var path = pathOf(ys);
+    var path2 = y2 ? '<path d="' + pathOf(y2) + '" fill="none" stroke="var(--series-2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' : "";
     var xl = '<text x="' + padL + '" y="' + (H - 4) + '">' + shortDate(ds[0]) + "</text>" +
       '<text x="' + (W - padR) + '" y="' + (H - 4) + '" text-anchor="end">' + shortDate(ds[ds.length - 1]) + "</text>";
     var last = ys.length - 1;
+    while (last > 0 && ys[last] == null) last--;
 
     el.innerHTML =
       '<svg role="img" aria-label="' + esc(ind.title) + " over the last " + range + '">' + g + ref +
-        '<path d="' + path + '" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+        path2 + '<path d="' + path + '" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
         (ys[last] != null ? '<circle cx="' + X(last) + '" cy="' + Y(ys[last]) + '" r="4" fill="var(--series)" stroke="var(--surface)" stroke-width="2"/>' : "") +
         '<g class="hover" style="display:none"><line y1="' + padT + '" y2="' + (H - padB) + '" stroke="var(--muted)" stroke-width="1"/>' +
         '<circle r="4" fill="var(--series)" stroke="var(--surface)" stroke-width="2"/></g>' +
@@ -343,13 +357,16 @@
       var px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
       var i = Math.round(((px - padL) / (W - padL - padR)) * (ys.length - 1));
       i = Math.max(0, Math.min(ys.length - 1, i));
-      if (ys[i] == null) return;
-      var x = X(i), y = Y(ys[i]);
+      var main = ys[i] != null ? ys[i] : (y2 ? y2[i] : null);
+      if (main == null) return;
+      var x = X(i), y = Y(main);
       hov.style.display = "";
       hov.firstChild.setAttribute("x1", x); hov.firstChild.setAttribute("x2", x);
       hov.lastChild.setAttribute("cx", x); hov.lastChild.setAttribute("cy", y);
-      tip.textContent = shortDate(ds[i]) + ": " + ys[i].toLocaleString(undefined, { maximumFractionDigits: 2 }) + (ind.unit === "%" && ind.id !== "ew" ? "%" : "");
-      tip.style.left = Math.max(50, Math.min(W - 50, x)) + "px";
+      function f(v) { return v == null ? "–" : v.toLocaleString(undefined, { maximumFractionDigits: 2 }) + (pct ? "%" : ""); }
+      tip.textContent = shortDate(ds[i]) + ": " + (y2 ? ind.labels[0] + " " + f(ys[i]) + " · ours " + f(y2[i]) : f(ys[i]));
+      var half = tip.offsetWidth / 2;
+      tip.style.left = Math.max(half, Math.min(W - half, x)) + "px";
       tip.style.opacity = 1;
     }
     function leave() { hov.style.display = "none"; tip.style.opacity = 0; }
