@@ -1,0 +1,39 @@
+name: Probe Stockbee sheet (temporary)
+
+on:
+  push:
+    branches: [probe-stockbee]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: pip install requests
+      - shell: python
+        run: |
+          import re, requests
+          UA = {"User-Agent": "Mozilla/5.0"}
+          page = requests.get("https://stockbee.blogspot.com/p/mm.html", headers=UA, timeout=30)
+          print("MM page", page.status_code, len(page.text))
+          links = re.findall(r'https://(?:docs|spreadsheets)\.google\.com/[^"\'<>\s]+', page.text)
+          for l in dict.fromkeys(links):
+              print("LINK", l)
+          i = page.text.find("2026")
+          print("CONTEXT 2026:", re.sub(r"\s+", " ", page.text[max(0, i-300):i+300]) if i >= 0 else "none")
+          ids = set(re.findall(r"/spreadsheets/d/(e/[A-Za-z0-9_-]+|[A-Za-z0-9_-]{30,})", " ".join(links)))
+          ids.add("1O6OhS7ciA8zwfycBfGPbP2fWJnR0pn2UUvFZVDP9jpE")
+          for sid in ids:
+              urls = [f"https://docs.google.com/spreadsheets/d/{sid}/pub?output=csv"]
+              if not sid.startswith("e/"):
+                  urls.append(f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv")
+              for u in urls:
+                  try:
+                      r = requests.get(u, headers=UA, timeout=30, allow_redirects=True)
+                      ct = r.headers.get("content-type", "")
+                      print("\n===", u, r.status_code, ct, len(r.text))
+                      if "csv" in ct:
+                          for line in r.text.splitlines()[:8]:
+                              print("  ", line[:400])
+                  except Exception as e:
+                      print("ERR", u, e)
