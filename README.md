@@ -22,7 +22,7 @@ A simple dashboard showing how many S&P 500 stocks are taking part in the market
 
   The quarterly 25% counts set the "regime" label. Stockbee scans about 6,000 stocks, so the raw counts here are smaller than his; compare up vs. down instead.
 
-- **Indices vs. moving averages**: the S&P 500, Nasdaq Composite, Nasdaq 100, Dow and Russell 2000. For each, the table shows the % distance from the 21-day EMA and the 50- and 200-day averages, plus which way each average is sloping. A slope is judged over 5, 10 and 20 days respectively; a move within ±0.1% counts as flat. "Uptrend" means price is above all three and all three are rising.
+- **Indices vs. moving averages**: the S&P 500, Nasdaq Composite, Nasdaq 100, Dow and Russell 2000. For each, the table shows the % distance from the 20-, 50- and 200-day simple moving averages (SMA), plus which way each average is sloping. A slope is judged over 5, 10 and 20 days respectively; a move within ±0.1% counts as flat. "Uptrend" means price is above all three and all three are rising.
 - **Top 25 stocks by market cap** (collapsed by default): the same moving-average breakdown for the biggest S&P 500 companies, one row per company. Market caps come from Yahoo; if those lookups fail, the ranking falls back to trading value.
 
 The headline verdict counts the five checks: two or more net healthy is "Broad", two or more net weak is "Narrow / weak", and anything else is "Mixed".

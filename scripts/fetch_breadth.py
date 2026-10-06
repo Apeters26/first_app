@@ -36,9 +36,9 @@ INDEXES = [
 ]
 EXTRAS = ["SPY", "RSP", "^VIX", "^VIX3M"] + [t for t, _ in INDEXES]
 TOP_N = 25  # largest companies shown in the moving-average table
-# (key, label, moving average, lookback in days used to judge its slope)
+# Simple moving averages: (key, label, average, lookback in days used to judge its slope)
 MA_SPECS = [
-    ("e21", "21-day EMA", lambda p: p.ewm(span=21, adjust=False).mean(), 5),
+    ("s20", "20-day SMA", lambda p: p.rolling(20).mean(), 5),
     ("s50", "50-day", lambda p: p.rolling(50).mean(), 10),
     ("s200", "200-day", lambda p: p.rolling(200).mean(), 20),
 ]
@@ -364,7 +364,7 @@ def t2108_card(dates, ours, theirs):
 
 
 def ma_profile(price):
-    """Distance from, and slope of, the 21-day EMA and 50/200-day averages."""
+    """Distance from, and slope of, the 20/50/200-day simple moving averages."""
     p = price.dropna()
     if len(p) < 30:
         raise ValueError("not enough history")

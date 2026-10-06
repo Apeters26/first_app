@@ -280,13 +280,13 @@
     if (!o) return '<td class="sep">–</td>';
     var sl = SLOPE[o.slope];
     return '<td class="sep ma" title="' + pctTxt(o.dist) + " from the " + label + "; the average is " + sl[1] + '">' +
-      '<span class="' + (o.dist >= 0 ? "pos" : "neg") + '">' + pctTxt(o.dist) + '</span> <span class="arw" aria-label="' + sl[1] + '">' + sl[0] + "</span></td>";
+      '<span class="' + (o.dist > 0 ? "pos" : o.dist < 0 ? "neg" : "") + '">' + pctTxt(o.dist) + '</span> <span class="arw" aria-label="' + sl[1] + '">' + sl[0] + "</span></td>";
   }
   function maHead() {
-    return '<th class="sep" title="21-day exponential moving average">21-day EMA</th><th class="sep">50-day</th><th class="sep">200-day</th>';
+    return '<th class="sep">20-day SMA</th><th class="sep">50-day SMA</th><th class="sep">200-day SMA</th>';
   }
-  function maCells(r) { return maCell(r.e21, "21-day EMA") + maCell(r.s50, "50-day average") + maCell(r.s200, "200-day average"); }
-  var MA_LEGEND = "Each average shows how far price is above (+) or below (−) it, and an arrow for which way the average itself is sloping: ↗ rising, → flat, ↘ falling. " +
+  function maCells(r) { return maCell(r.s20, "20-day SMA") + maCell(r.s50, "50-day SMA") + maCell(r.s200, "200-day SMA"); }
+  var MA_LEGEND = "All simple moving averages (SMA). Each one shows how far price is above (+) or below (−) it, and an arrow for which way the average itself is sloping: ↗ rising, → flat, ↘ falling. " +
     "Uptrend means price is above all three and all three are rising; downtrend is the reverse.";
 
   function indicesHTML(rows) {
