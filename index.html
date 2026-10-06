@@ -62,7 +62,7 @@
   .verdict p { margin: 2px 0 0; color: var(--text-2); }
   .verdict .meta { margin-left: auto; text-align: right; color: var(--muted); font-size: 13px; }
 
-  .toolbar { display: flex; justify-content: space-between; align-items: center; margin: 0 0 12px; gap: 12px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin: 0 0 12px; gap: 8px 12px; flex-wrap: wrap; }
   .toolbar h2 { font-size: 15px; margin: 0; color: var(--text-2); font-weight: 600; }
   .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
   .seg button {
@@ -105,6 +105,7 @@
     opacity: 0; transition: opacity .1s; font-variant-numeric: tabular-nums;
   }
 
+  .monitor + .monitor { margin-top: 12px; }
   .monitor { margin-top: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
   .monitor > summary { cursor: pointer; padding: 14px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; list-style: none; }
   .monitor > summary::-webkit-details-marker { display: none; }
@@ -127,6 +128,20 @@
   table.mm td small { color: var(--muted); font-weight: 400; }
   table.mm tbody tr:first-child td { font-weight: 600; }
   .legend { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 28px 0 12px; flex-wrap: wrap; }
+  .section-head h2 { font-size: 15px; margin: 0; color: var(--text-2); font-weight: 600; }
+  .section-head .note { color: var(--muted); font-size: 12px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .panel .tablewrap { border: 0; }
+  table.mm td.ma { font-weight: 600; }
+  table.mm .pos { color: var(--good-ink); } table.mm .neg { color: var(--bad-ink); }
+  table.mm .arw { display: inline-block; width: 1.1em; text-align: center; color: var(--text-2); font-weight: 400; }
+  table.mm td .pill { font-size: 11px; }
+  table.mm td.l small { color: var(--muted); margin-left: 6px; font-weight: 400; }
+  @media (max-width: 600px) { table.mm td.l small.nm { display: none; } }
+  table.mm.plain tbody tr:first-child td { font-weight: inherit; }
+  table.mm.plain thead tr:first-child th { color: var(--text-2); font-weight: 600; border-bottom: 1px solid var(--grid); }
+  table.mm.plain tbody tr:first-child td.ma { font-weight: 600; }
   details.learn { margin-top: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   details.learn summary { cursor: pointer; font-weight: 600; }
   details.learn p, details.learn li { color: var(--text-2); font-size: 14px; }
@@ -138,7 +153,7 @@
 <body>
 <main>
   <h1>Market Breadth</h1>
-  <p class="sub">Is the whole market rising, or just a few big stocks? Five classic checks on the S&amp;P 500, plus a fear gauge, Stockbee's T2108 and a Stockbee-style monitor. Updated after each trading day.</p>
+  <p class="sub">Is the whole market rising, or just a few big stocks? Five classic checks on the S&amp;P 500, plus a fear gauge, T2108, index trends, the biggest stocks and a Stockbee-style monitor. Updated after each trading day.</p>
 
   <div id="app"><p class="sub">Loading…</p></div>
 
@@ -232,7 +247,7 @@
             '<p class="what">' + esc(ind.what) + (ind.source ? ' <a href="' + esc(ind.source) + '" target="_blank" rel="noopener">Stockbee\'s sheet</a>' : "") + "</p>" +
           "</article>";
         }).join("") +
-      "</div>" + monitorHTML(d.monitor);
+      "</div>" + indicesHTML(d.indices) + megaHTML(d.megacaps) + monitorHTML(d.monitor);
     document.getElementById("app").innerHTML = html;
     document.getElementById("foot").innerHTML +=
       " Five checks use " + d.universe + " S&amp;P 500 stocks. Generated " + esc(d.generated) + ".";
@@ -245,15 +260,68 @@
         drawAll();
       });
     });
-    var mon = document.querySelector(".monitor");
-    if (mon) mon.addEventListener("toggle", function () {
-      try { localStorage.setItem("monitorOpen", mon.open ? "1" : "0"); } catch (e) {}
+    document.querySelectorAll("details.monitor").forEach(function (el) {
+      var key = el.classList.contains("mega") ? "megaOpen" : "monitorOpen";
+      el.addEventListener("toggle", function () {
+        try { localStorage.setItem(key, el.open ? "1" : "0"); } catch (e) {}
+      });
     });
     drawAll();
     if (window.ResizeObserver) {
       var ro = new ResizeObserver(function () { drawAll(); });
       ro.observe(document.querySelector(".grid"));
     }
+  }
+
+  var TREND = { healthy: "Uptrend", mixed: "Mixed", weak: "Downtrend" };
+  var SLOPE = { up: ["↗", "rising"], down: ["↘", "falling"], flat: ["→", "flat"] };
+  function pctTxt(v, dp) { return (v > 0 ? "+" : "") + v.toFixed(dp == null ? 1 : dp) + "%"; }
+  function maCell(o, label) {
+    if (!o) return '<td class="sep">–</td>';
+    var sl = SLOPE[o.slope];
+    return '<td class="sep ma" title="' + pctTxt(o.dist) + " from the " + label + "; the average is " + sl[1] + '">' +
+      '<span class="' + (o.dist >= 0 ? "pos" : "neg") + '">' + pctTxt(o.dist) + '</span> <span class="arw" aria-label="' + sl[1] + '">' + sl[0] + "</span></td>";
+  }
+  function maHead() {
+    return '<th class="sep" title="21-day exponential moving average">21-day EMA</th><th class="sep">50-day</th><th class="sep">200-day</th>';
+  }
+  function maCells(r) { return maCell(r.e21, "21-day EMA") + maCell(r.s50, "50-day average") + maCell(r.s200, "200-day average"); }
+  var MA_LEGEND = "Each average shows how far price is above (+) or below (−) it, and an arrow for which way the average itself is sloping: ↗ rising, → flat, ↘ falling. " +
+    "Uptrend means price is above all three and all three are rising; downtrend is the reverse.";
+
+  function indicesHTML(rows) {
+    if (!rows || !rows.length) return "";
+    var body = rows.map(function (r) {
+      return '<tr><td class="l">' + esc(r.name) + "</td>" +
+        '<td class="sep">' + r.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        ' <small class="' + (r.chg1d >= 0 ? "pos" : "neg") + '">' + pctTxt(r.chg1d, 2) + "</small></td>" +
+        maCells(r) + '<td class="sep">' + pill(r.trend, TREND[r.trend]) + "</td></tr>";
+    }).join("");
+    return '<div class="section-head"><h2>Indices vs. moving averages</h2><span class="note">Distance from each average · slope arrow</span></div>' +
+      '<section class="panel"><div class="tablewrap"><table class="mm plain"><thead><tr><th class="l">Index</th><th class="sep">Close (day)</th>' + maHead() +
+      '<th class="sep">Trend</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+      '<p class="legend">' + MA_LEGEND + "</p></section>";
+  }
+
+  function megaHTML(m) {
+    if (!m || !m.rows || !m.rows.length) return "";
+    var n = m.rows.length, st = m.above50 >= 0.6 * n ? "healthy" : m.above50 <= 0.4 * n ? "weak" : "mixed";
+    var body = m.rows.map(function (r, i) {
+      var cap = r.cap == null ? "–" : r.cap >= 1000 ? "$" + (r.cap / 1000).toFixed(2) + "T" : "$" + r.cap + "B";
+      return '<tr><td class="l">' + (i + 1) + ". " + esc(r.sym) + '<small class="nm">' + esc(r.name) + "</small></td>" +
+        '<td class="sep">' + cap + "</td>" +
+        '<td class="sep">' + r.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "</td>" +
+        '<td class="' + (r.chg1m >= 0 ? "pos" : "neg") + '">' + pctTxt(r.chg1m) + "</td>" +
+        maCells(r) + '<td class="sep">' + pill(r.trend, TREND[r.trend]) + "</td></tr>";
+    }).join("");
+    var open = false;
+    try { open = localStorage.getItem("megaOpen") === "1"; } catch (e) {}
+    return '<details class="monitor mega"' + (open ? " open" : "") + '><summary><strong>Top ' + n + " stocks by market cap</strong>" + pill(st) +
+      '<span class="regime">' + m.above50 + " of " + n + " above their 50-day, " + m.above200 + " above their 200-day · " +
+      m.uptrend + " in an uptrend, " + m.downtrend + " in a downtrend.</span></summary>" +
+      '<div class="body"><div class="tablewrap"><table class="mm plain"><thead><tr><th class="l">Company</th><th class="sep">Mkt cap</th><th class="sep">Price</th><th>1 mo</th>' +
+      maHead() + '<th class="sep">Trend</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+      '<p class="legend">Ranked by ' + esc(m.basis) + ", one row per company. " + MA_LEGEND + "</p></div></details>";
   }
 
   function monitorHTML(m) {

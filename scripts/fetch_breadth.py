@@ -14,6 +14,7 @@ Run:  python scripts/fetch_breadth.py            (live data)
 import csv
 import io
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,22 @@ OUT = Path(__file__).resolve().parent.parent / "data" / "breadth.json"
 UA = {"User-Agent": "Mozilla/5.0 (market-breadth dashboard)"}
 KEEP_DAYS = 260  # about one trading year shown in the app
 MONITOR_DAYS = 10  # rows in the Stockbee-style table
-EXTRAS = ["SPY", "RSP", "^VIX", "^VIX3M"]
+INDEXES = [
+    ("^GSPC", "S&P 500"),
+    ("^IXIC", "Nasdaq Composite"),
+    ("^NDX", "Nasdaq 100"),
+    ("^DJI", "Dow Jones"),
+    ("^RUT", "Russell 2000"),
+]
+EXTRAS = ["SPY", "RSP", "^VIX", "^VIX3M"] + [t for t, _ in INDEXES]
+TOP_N = 25  # largest companies shown in the moving-average table
+# (key, label, moving average, lookback in days used to judge its slope)
+MA_SPECS = [
+    ("e21", "21-day EMA", lambda p: p.ewm(span=21, adjust=False).mean(), 5),
+    ("s50", "50-day", lambda p: p.rolling(50).mean(), 10),
+    ("s200", "200-day", lambda p: p.rolling(200).mean(), 20),
+]
+FLAT_BAND = 0.1  # % change in the average over its lookback that still counts as flat
 WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_{}_companies"
 # Stockbee's public Market Monitor sheet (he keeps updating this one; the title says 2025).
 STOCKBEE_SHEET = "https://docs.google.com/spreadsheets/d/1O6OhS7ciA8zwfycBfGPbP2fWJnR0pn2UUvFZVDP9jpE"
@@ -37,7 +53,12 @@ def wiki_symbols(n):
     for table in pd.read_html(io.StringIO(html)):
         for col in table.columns:
             if str(col).lower() in ("symbol", "ticker symbol", "ticker"):
-                return {str(s).strip().replace(".", "-") for s in table[col].dropna()}
+                name_col = next((c for c in table.columns if str(c).lower() in ("security", "company")), col)
+                return {
+                    str(sym).strip().replace(".", "-"): str(name).strip()
+                    for sym, name in zip(table[col], table[name_col])
+                    if pd.notna(sym)
+                }
     raise ValueError(f"no symbol column on S&P {n} page")
 
 
@@ -46,19 +67,21 @@ def load_universe():
         sp500 = wiki_symbols(500)
     except Exception as exc:  # noqa: BLE001
         print(f"Wikipedia S&P 500 failed ({exc}); using GitHub dataset", file=sys.stderr)
-        csv = requests.get(
+        text = requests.get(
             "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv",
             headers=UA,
             timeout=30,
         ).text
-        sp500 = {s.strip().replace(".", "-") for s in pd.read_csv(io.StringIO(csv))["Symbol"]}
+        table = pd.read_csv(io.StringIO(text))
+        name_col = "Security" if "Security" in table else "Name" if "Name" in table else "Symbol"
+        sp500 = {str(s).strip().replace(".", "-"): str(n) for s, n in zip(table["Symbol"], table[name_col])}
     wider = set(sp500)
     for n in (400, 600):
         try:
-            wider |= wiki_symbols(n)
+            wider |= set(wiki_symbols(n))
         except Exception as exc:  # noqa: BLE001
             print(f"S&P {n} list failed ({exc}); monitor uses a smaller universe", file=sys.stderr)
-    return sorted(sp500), sorted(wider)
+    return sp500, sorted(wider)
 
 
 def download(tickers):
@@ -92,6 +115,8 @@ def demo_data():
     vix = np.clip(18 - 400 * pd.Series(market).rolling(10, min_periods=1).mean() + rng.normal(0, 1, len(dates)), 10, 60)
     close["^VIX"] = vix.values
     close["^VIX3M"] = (vix * 0.6 + 8).values
+    for k, (sym, _) in enumerate(INDEXES):
+        close[sym] = (1000 * (k + 1)) * np.exp(np.cumsum(market * rng.uniform(0.8, 1.4) + rng.normal(0, 0.003, len(dates))))
     tickers = [f"S{i:04d}" for i in range(1500)]
     return pd.DataFrame(close, index=dates), pd.DataFrame(vol, index=dates), tickers[:500], tickers
 
@@ -119,7 +144,7 @@ def pct_above(prices, window):
 
 def breadth_checks(close, sp500):
     spy, rsp = close["SPY"], close["RSP"]
-    stocks = close[[t for t in sp500 if t in close]]
+    stocks = close[[t for t in sp500 if t in close]]  # works for a list or a {symbol: name} dict
     p200, p50 = pct_above(stocks, 200), pct_above(stocks, 50)
 
     hi = stocks.rolling(252, min_periods=200).max()
@@ -338,6 +363,97 @@ def t2108_card(dates, ours, theirs):
     }
 
 
+def ma_profile(price):
+    """Distance from, and slope of, the 21-day EMA and 50/200-day averages."""
+    p = price.dropna()
+    if len(p) < 30:
+        raise ValueError("not enough history")
+    last = float(p.iloc[-1])
+    out = {
+        "price": round(last, 2),
+        "chg1d": round((last / p.iloc[-2] - 1) * 100, 2),
+        "chg1m": round((last / p.iloc[-22] - 1) * 100, 1),
+    }
+    above = rising = 0
+    for key, _, fn, lookback in MA_SPECS:
+        ma = fn(p)
+        if len(ma.dropna()) <= lookback:
+            out[key] = None
+            continue
+        m, prev = float(ma.iloc[-1]), float(ma.iloc[-1 - lookback])
+        change = (m / prev - 1) * 100
+        slope = "up" if change > FLAT_BAND else "down" if change < -FLAT_BAND else "flat"
+        out[key] = {"dist": round((last / m - 1) * 100, 1), "slope": slope}
+        above += last > m
+        rising += slope == "up"
+    n = sum(out[k] is not None for k, *_ in MA_SPECS)
+    if n and above == n and rising == n:
+        out["trend"] = "healthy"
+    elif n and above == 0 and not any(out[k] and out[k]["slope"] != "down" for k, *_ in MA_SPECS):
+        out["trend"] = "weak"
+    else:
+        out["trend"] = "mixed"
+    return out
+
+
+def index_table(close):
+    rows = []
+    for sym, name in INDEXES:
+        if sym in close and close[sym].notna().sum() > 200:
+            rows.append({"sym": sym.lstrip("^"), "name": name, **ma_profile(close[sym])})
+    if not rows:
+        raise KeyError("no index prices")
+    return rows
+
+
+def market_caps(tickers):
+    import yfinance as yf
+    from concurrent.futures import ThreadPoolExecutor
+
+    def cap(t):
+        try:
+            return t, float(yf.Ticker(t).fast_info["market_cap"])
+        except Exception:  # noqa: BLE001 - one missing cap shouldn't stop the rest
+            return t, None
+
+    with ThreadPoolExecutor(8) as pool:
+        return {t: c for t, c in pool.map(cap, tickers) if c}
+
+
+def megacap_table(close, volume, sp500, caps_fn=market_caps):
+    """The TOP_N biggest S&P 500 companies with the same moving-average profile."""
+    names = sp500 if isinstance(sp500, dict) else {t: t for t in sp500}
+    syms = [t for t in names if t in close]
+    dollar_vol = (close[syms] * volume[syms]).iloc[-20:].mean().sort_values(ascending=False)
+    candidates = list(dollar_vol.index[:60])  # every giant trades heavily; cap lookups only for these
+    caps = caps_fn(candidates)
+    by_cap = len(caps) >= 40
+    order = sorted(caps, key=caps.get, reverse=True) if by_cap else candidates
+
+    rows, seen = [], set()
+    for t in order:
+        company = re.sub(r"\s*\(?Class [A-Z]\)?$", "", names.get(t, t)).strip()
+        if company in seen:  # one row per company (e.g. GOOGL and GOOG)
+            continue
+        try:
+            prof = ma_profile(close[t])
+        except ValueError:
+            continue
+        seen.add(company)
+        rows.append({"sym": t, "name": company, "cap": round(caps[t] / 1e9) if by_cap else None, **prof})
+        if len(rows) == TOP_N:
+            break
+    s50 = [r["s50"] for r in rows if r.get("s50")]
+    return {
+        "basis": "market cap" if by_cap else "trading value (market caps unavailable)",
+        "above50": sum(x["dist"] > 0 for x in s50),
+        "above200": sum(r["s200"]["dist"] > 0 for r in rows if r.get("s200")),
+        "uptrend": sum(r["trend"] == "healthy" for r in rows),
+        "downtrend": sum(r["trend"] == "weak" for r in rows),
+        "rows": rows,
+    }
+
+
 def optional(fn, *args):
     """Extras shouldn't block the core checks if their data is missing."""
     try:
@@ -347,7 +463,7 @@ def optional(fn, *args):
         return []
 
 
-def build(close, volume, sp500, universe, stockbee=None):
+def build(close, volume, sp500, universe, stockbee=None, caps_override=()):
     spy = close["SPY"]
     dates = [d.strftime("%Y-%m-%d") for d in close.index[-KEEP_DAYS:]]
     n500, checks = breadth_checks(close, sp500)
@@ -367,6 +483,8 @@ def build(close, volume, sp500, universe, stockbee=None):
         "dates": dates,
         "indicators": checks + optional(vix_card, close) + optional(t2108_card, dates, our_t2108, stockbee),
         "monitor": monitor,
+        "indices": next(iter(optional(index_table, close)), None),
+        "megacaps": next(iter(optional(megacap_table, close, volume, sp500, *caps_override)), None),
     }
 
 
@@ -381,9 +499,11 @@ def clean(obj):
 
 
 def main():
-    stockbee = None
+    stockbee, caps_override = None, ()
     if "--demo" in sys.argv:
         close, volume, sp500, universe = demo_data()
+        sp500 = {t: f"Demo Company {t[1:]}" for t in sp500}
+        caps_override = (lambda ts: {t: 4e12 / (i + 1) for i, t in enumerate(ts)},)
         idx = close.index[-120:]
         stockbee = pd.Series(np.linspace(30, 22, len(idx)), index=idx)
     else:
@@ -396,7 +516,7 @@ def main():
             sys.exit(f"Only got {got500} S&P 500 prices; refusing to overwrite data")
         got = optional(fetch_stockbee_t2108)
         stockbee = got[0] if got else None
-    data = build(close, volume, sp500, universe, stockbee)
+    data = build(close, volume, sp500, universe, stockbee, caps_override)
     OUT.parent.mkdir(exist_ok=True)
     # allow_nan=False: a stray NaN would make the file unreadable in browsers.
     OUT.write_text(json.dumps(clean(data), separators=(",", ":"), allow_nan=False))
