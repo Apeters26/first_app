@@ -38,4 +38,6 @@ jobs:
           git add data/breadth.json
           git diff --cached --quiet && exit 0
           git commit -m "Update breadth data"
+          # Someone may have pushed code while this ran; replay the data commit on top.
+          git pull --rebase origin master
           git push
