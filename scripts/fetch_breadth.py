@@ -16,6 +16,7 @@ import io
 import json
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -84,13 +85,26 @@ def load_universe():
     return sp500, sorted(wider)
 
 
-def download(tickers):
+def download(tickers, retries=2):
     import yfinance as yf
 
-    data = yf.download(
-        tickers, period="2y", interval="1d", auto_adjust=True, progress=False, threads=True
-    )
-    close, volume = data["Close"].dropna(how="all"), data["Volume"]
+    def fetch(syms, threads):
+        data = yf.download(syms, period="2y", interval="1d", auto_adjust=True, progress=False, threads=threads)
+        return data["Close"], data["Volume"]
+
+    close, volume = fetch(tickers, True)
+    # Yahoo rate-limits bursts; retry whatever came back empty, more gently each time.
+    for attempt in range(1, retries + 1):
+        missing = [t for t in tickers if t not in close or close[t].isna().all()]
+        if not missing:
+            break
+        print(f"Retrying {len(missing)} tickers (attempt {attempt})", file=sys.stderr)
+        time.sleep(30 * attempt)
+        c2, v2 = fetch(missing, False)
+        got = [t for t in missing if t in c2 and c2[t].notna().any()]
+        close = close.drop(columns=got, errors="ignore").join(c2[got], how="outer")
+        volume = volume.drop(columns=got, errors="ignore").join(v2[got], how="outer")
+    close = close.dropna(how="all")
     # Keep only stock-market trading days; ^VIX can print on exchange holidays,
     # which would leave a gap in every stock's history.
     close = close[close["SPY"].notna()]
@@ -407,28 +421,51 @@ def index_table(close):
 
 
 def market_caps(tickers):
+    """Yahoo market caps, one gentle request at a time (bursts get rate-limited)."""
     import yfinance as yf
-    from concurrent.futures import ThreadPoolExecutor
 
-    def cap(t):
-        try:
-            return t, float(yf.Ticker(t).fast_info["market_cap"])
-        except Exception:  # noqa: BLE001 - one missing cap shouldn't stop the rest
-            return t, None
+    caps, todo = {}, list(tickers)
+    for attempt in range(2):
+        failed = []
+        for t in todo:
+            try:
+                caps[t] = float(yf.Ticker(t).fast_info["market_cap"])
+            except Exception:  # noqa: BLE001 - one missing cap shouldn't stop the rest
+                failed.append(t)
+            time.sleep(0.4)
+        if not failed:
+            break
+        print(f"{len(failed)} market caps failed (attempt {attempt + 1})", file=sys.stderr)
+        todo = failed
+        time.sleep(30)
+    return {t: c for t, c in caps.items() if c and c > 0}
 
-    with ThreadPoolExecutor(8) as pool:
-        return {t: c for t, c in pool.map(cap, tickers) if c}
+
+def previous_caps():
+    """Market caps from the last successful run, used when Yahoo refuses today's lookups."""
+    try:
+        old = json.loads(OUT.read_text()).get("megacaps") or {}
+    except (OSError, ValueError):
+        return {}
+    if not str(old.get("basis", "")).startswith("market cap"):
+        return {}
+    return {r["sym"]: r["cap"] * 1e9 for r in old.get("rows", []) if r.get("cap")}
 
 
-def megacap_table(close, volume, sp500, caps_fn=market_caps):
+def megacap_table(close, volume, sp500, caps_fn=market_caps, fallback_caps=None):
     """The TOP_N biggest S&P 500 companies with the same moving-average profile."""
     names = sp500 if isinstance(sp500, dict) else {t: t for t in sp500}
     syms = [t for t in names if t in close]
     dollar_vol = (close[syms] * volume[syms]).iloc[-20:].mean().sort_values(ascending=False)
     candidates = list(dollar_vol.index[:60])  # every giant trades heavily; cap lookups only for these
     caps = caps_fn(candidates)
-    by_cap = len(caps) >= 40
-    order = sorted(caps, key=caps.get, reverse=True) if by_cap else candidates
+    basis = "market cap"
+    if len(caps) < 40 and fallback_caps:
+        # Fill gaps from the last good run; big companies' ranks barely move day to day.
+        caps = {**{t: c for t, c in fallback_caps.items() if t in close}, **caps}
+        basis = "market cap (some from the previous update)"
+    by_cap = len(caps) >= 25
+    order = sorted((t for t in caps if t in close), key=caps.get, reverse=True) if by_cap else candidates
 
     rows, seen = [], set()
     for t in order:
@@ -445,7 +482,7 @@ def megacap_table(close, volume, sp500, caps_fn=market_caps):
             break
     s50 = [r["s50"] for r in rows if r.get("s50")]
     return {
-        "basis": "market cap" if by_cap else "trading value (market caps unavailable)",
+        "basis": basis if by_cap else "trading value (market caps unavailable)",
         "above50": sum(x["dist"] > 0 for x in s50),
         "above200": sum(r["s200"]["dist"] > 0 for r in rows if r.get("s200")),
         "uptrend": sum(r["trend"] == "healthy" for r in rows),
@@ -484,7 +521,7 @@ def build(close, volume, sp500, universe, stockbee=None, caps_override=()):
         "indicators": checks + optional(vix_card, close) + optional(t2108_card, dates, our_t2108, stockbee),
         "monitor": monitor,
         "indices": next(iter(optional(index_table, close)), None),
-        "megacaps": next(iter(optional(megacap_table, close, volume, sp500, *caps_override)), None),
+        "megacaps": next(iter(optional(megacap_table, close, volume, sp500, *(caps_override or (market_caps, previous_caps())))), None),
     }
 
 
