@@ -3,6 +3,7 @@ name: Update breadth data
 on:
   schedule:
     - cron: "30 22 * * 1-5" # weekdays, after the US close
+    - cron: "15 3 * * 2-6" # backup run later that night, in case Yahoo was late posting closes
   workflow_dispatch:
   push:
     branches: [master]

@@ -109,7 +109,10 @@ def download(tickers, retries=2):
     # which would leave a gap in every stock's history.
     close = close[close["SPY"].notna()]
     # Drop the last row if most stocks have no price yet (partial day).
+    for d, row in close.iloc[-3:].iterrows():
+        print(f"{d.date()}: {row.notna().mean():.0%} of tickers have a close", file=sys.stderr)
     if close.iloc[-1].notna().mean() < 0.8:
+        print(f"Dropping {close.index[-1].date()} as a partial day", file=sys.stderr)
         close = close.iloc[:-1]
     return close, volume.reindex(close.index)
 
