@@ -147,6 +147,12 @@
   details.learn p, details.learn li { color: var(--text-2); font-size: 14px; }
   footer { margin-top: 20px; color: var(--muted); font-size: 12px; }
   footer a { color: inherit; }
+  /* TV mode (?tv): read from the couch, no explanations, nothing to click */
+  html.tv .sub, html.tv .what, html.tv .legend, html.tv details.learn,
+  html.tv .monitor:not(.mega), html.tv .seg, html.tv .tip { display: none; }
+  html.tv main { padding-top: 20px; max-width: 1080px; }
+  html.tv .mega > summary { pointer-events: none; }
+  html.tv .mega > summary::before { content: none; }
   .error { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; color: var(--text-2); }
 </style>
 </head>
@@ -177,6 +183,17 @@
     var t = localStorage.getItem("theme");
     if (t) document.documentElement.setAttribute("data-theme", t);
   } catch (e) {}
+
+  // TV mode: add ?tv to the address. Scales the page to fill the screen.
+  var TV = /[?&]tv(=|&|$)/.test(location.search);
+  if (TV) {
+    document.documentElement.classList.add("tv");
+    var fit = function () {
+      document.documentElement.style.zoom = Math.min(3, Math.max(1, window.innerWidth / 1120)).toFixed(3);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+  }
 
   var RANGES = { "3M": 63, "6M": 126, "1Y": 260 };
   var range = "6M";
@@ -215,11 +232,21 @@
 
   fetch("data/breadth.json", { cache: "no-cache" })
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (d) { DATA = d; render(); })
+    .then(function (d) { DATA = d; render(); watchForUpdates(); })
     .catch(function () {
       document.getElementById("app").innerHTML =
         '<div class="error">No data yet. The daily update job writes <code>data/breadth.json</code>. Run the “Update breadth data” workflow on GitHub to create it.</div>';
     });
+
+  // Pages left open (a TV, a spare monitor) reload themselves when new data lands.
+  function watchForUpdates() {
+    setInterval(function () {
+      fetch("data/breadth.json", { cache: "no-cache" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) { if (d && d.generated !== DATA.generated) location.reload(); })
+        .catch(function () {});
+    }, 15 * 60 * 1000);
+  }
 
   function render() {
     var d = DATA, v = VERDICT[d.overall];
@@ -250,7 +277,7 @@
       "</div>" + indicesHTML(d.indices) + megaHTML(d.megacaps) + monitorHTML(d.monitor);
     document.getElementById("app").innerHTML = html;
     document.getElementById("foot").innerHTML +=
-      " Five checks use " + d.universe + " S&amp;P 500 stocks. Generated " + esc(d.generated) + ".";
+      " Five checks use " + d.universe + " S&amp;P 500 stocks. Generated " + esc(d.generated) + ". This page checks for new data every 15 minutes.";
 
     document.querySelectorAll(".seg button").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -315,7 +342,7 @@
         maCells(r) + '<td class="sep">' + pill(r.trend, TREND[r.trend]) + "</td></tr>";
     }).join("");
     var open = false;
-    try { open = localStorage.getItem("megaOpen") === "1"; } catch (e) {}
+    try { open = TV || localStorage.getItem("megaOpen") === "1"; } catch (e) { open = TV; }
     return '<details class="monitor mega"' + (open ? " open" : "") + '><summary><strong>Top ' + n + " stocks by market cap</strong>" + pill(st) +
       '<span class="regime">' + m.above50 + " of " + n + " above their 50-day, " + m.above200 + " above their 200-day · " +
       m.uptrend + " in an uptrend, " + m.downtrend + " in a downtrend.</span></summary>" +
